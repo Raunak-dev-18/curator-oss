@@ -1,0 +1,49 @@
+{
+  "name": "cognix-ai-appbuilder",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@auth0/nextjs-auth0": "^4.25.0",
+    "@daytona/sdk": "^0.196.0",
+    "@google-cloud/storage": "^7.21.0",
+    "@neondatabase/serverless": "^1.1.0",
+    "clsx": "^2.1.1",
+    "diff": "^9.0.0",
+    "drizzle-orm": "^0.45.2",
+    "geist": "^1.7.2",
+    "lucide-react": "^1.24.0",
+    "next": "16.2.10",
+    "openai": "^6.46.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^4.12.2",
+    "remark-gfm": "^4.0.1",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.6.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.3",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  }
+}
