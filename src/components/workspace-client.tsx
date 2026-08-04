@@ -424,9 +424,7 @@ export function WorkspaceClient({
   initialPrompt,
   initialAttachmentIds = [],
 }: WorkspaceClientProps) {
-  const [project, setProject] = useState(() =>
-    initialProject.sandboxId ? { ...initialProject, previewUrl: null } : initialProject,
-  );
+  const [project, setProject] = useState(initialProject);
   const [messages, setMessages] = useState(initialMessages);
   const [files, setFiles] = useState(initialFiles);
   const [mode, setMode] = useState<"preview" | "code" | "details">("preview");
@@ -436,6 +434,7 @@ export function WorkspaceClient({
   const [detailsReturnMode, setDetailsReturnMode] = useState<"preview" | "code">("preview");
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("desktop");
   const [previewRevision, setPreviewRevision] = useState(0);
+  const [isPreviewReconnecting, setIsPreviewReconnecting] = useState(Boolean(initialProject.sandboxId));
   const [visualEditEnabled, setVisualEditEnabled] = useState(false);
   const [visualEditConnecting, setVisualEditConnecting] = useState(false);
   const [visualBridgeReady, setVisualBridgeReady] = useState(false);
@@ -524,21 +523,33 @@ export function WorkspaceClient({
   useEffect(() => {
     if (!initialProject.sandboxId) return;
     let cancelled = false;
-    void fetch(`/api/projects/${initialProject.id}/preview`, { cache: "no-store" })
-      .then(async (response) => ({ response, payload: await response.json() }))
-      .then(({ response, payload }) => {
-        if (cancelled) return;
-        if (!response.ok || typeof payload.url !== "string") {
-          setProject((current) => ({ ...current, previewUrl: null }));
-          return;
+
+    const wait = (delayMs: number) => new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    async function reconnectPreview() {
+      setIsPreviewReconnecting(true);
+      for (let attempt = 0; attempt < 36 && !cancelled; attempt += 1) {
+        try {
+          const response = await fetch(`/api/projects/${initialProject.id}/preview`, { cache: "no-store" });
+          const payload = await response.json();
+          if (response.ok && typeof payload.url === "string") {
+            if (cancelled) return;
+            setVisualBridgeReady(false);
+            setProject(payload.project
+              ? { ...(payload.project as Project), previewUrl: payload.url }
+              : (current) => ({ ...current, previewUrl: payload.url }));
+            setPreviewRevision((current) => current + 1);
+            setIsPreviewReconnecting(false);
+            return;
+          }
+        } catch {
+          // Keep retrying while Daytona wakes the sandbox and starts the dev server.
         }
-        setProject(payload.project
-          ? { ...(payload.project as Project), previewUrl: payload.url }
-          : (current) => ({ ...current, previewUrl: payload.url }));
-      })
-      .catch(() => {
-        if (!cancelled) setProject((current) => ({ ...current, previewUrl: null }));
-      });
+        await wait(attempt < 6 ? 2_500 : 5_000);
+      }
+      if (!cancelled) setIsPreviewReconnecting(false);
+    }
+
+    void reconnectPreview();
     return () => {
       cancelled = true;
     };
@@ -915,6 +926,7 @@ export function WorkspaceClient({
   }, [initialPrompt, initialAttachmentIds, initialMessages, submitPrompt]);
 
   async function refreshPreview() {
+    setIsPreviewReconnecting(true);
     try {
       const response = await fetch(`/api/projects/${project.id}/preview`, { cache: "no-store" });
       const payload = await response.json();
@@ -926,6 +938,8 @@ export function WorkspaceClient({
       setPreviewRevision((current) => current + 1);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Preview is not ready yet.");
+    } finally {
+      setIsPreviewReconnecting(false);
     }
   }
 
@@ -1314,7 +1328,7 @@ export function WorkspaceClient({
                     <span className="toolbar-control-label">{visualEditEnabled ? "Done" : "Select"}</span>
                   </button>
                   <div className="preview-address">
-                    <button type="button" aria-label="Refresh preview" onClick={() => void refreshPreview()}><RefreshCw className="size-3.5" /></button>
+                    <button type="button" aria-label="Refresh preview" onClick={() => void refreshPreview()} disabled={isPreviewReconnecting}><RefreshCw className={cn("size-3.5", isPreviewReconnecting && "animate-spin")} /></button>
                     <span>{projectHost}</span>
                     {currentPreviewUrl ? <a href={currentPreviewUrl} target="_blank" rel="noreferrer" aria-label="Open preview in a new tab"><ExternalLink className="size-3.5" /></a> : null}
                   </div>
@@ -1378,7 +1392,7 @@ export function WorkspaceClient({
                     ) : null}
                     <div className="preview-floating-tools"><button type="button" aria-label="Copy preview URL" title="Copy preview URL" onClick={() => { void navigator.clipboard.writeText(currentPreviewUrl); toast.success("Preview link copied."); }}><Copy className="size-4" /></button></div>
                   </div>
-                ) : <PreviewPlaceholder />
+                ) : <PreviewPlaceholder reconnecting={isPreviewReconnecting} />
               ) : mode === "code" ? (
                 <CodeWorkbench
                   projectId={project.id}
