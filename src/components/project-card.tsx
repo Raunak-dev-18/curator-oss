@@ -16,8 +16,8 @@ export function ProjectCard({ project, viewer }: { project: Project; viewer: Vie
           </div>
         </div>
         <span className="project-status">
-          <span className={project.status === "error" ? "bg-red-500" : project.status === "building" ? "bg-amber-500" : project.status === "draft" ? "bg-black/35" : "bg-emerald-500"} />
-          {project.publishedAt ? "Published" : project.status === "ready" ? "Preview ready" : project.status === "building" ? "Building" : project.status === "error" ? "Needs attention" : "Draft"}
+          <span className={project.status === "error" ? "bg-red-500" : project.status === "building" || project.status === "publishing" ? "bg-amber-500" : project.status === "draft" ? "bg-black/35" : "bg-emerald-500"} />
+          {project.status === "publishing" ? "Publishing" : project.publishedAt ? "Published" : project.status === "ready" ? "Preview ready" : project.status === "building" ? "Building" : project.status === "error" ? "Needs attention" : "Draft"}
         </span>
       </Link>
       <div className="flex items-start gap-3 px-1 pt-3">

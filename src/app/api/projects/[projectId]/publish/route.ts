@@ -3,12 +3,19 @@ import { requireViewer } from "@/lib/auth0";
 import { deployPublishedApp, stopPublishedApp } from "@/lib/daytona";
 import { errorResponse, notFound } from "@/lib/http";
 import { publishedAppUrl } from "@/lib/publish-url";
-import { getProject, getProjectByPublishSlug, updateProject } from "@/lib/store";
+import { createMessage, getProject, getProjectByPublishSlug, updateProject } from "@/lib/store";
+import type { Project } from "@/lib/types";
 
 type Context = { params: Promise<{ projectId: string }> };
 
 export const runtime = "nodejs";
 export const maxDuration = 900;
+
+declare global {
+  var __cognixPublishJobs: Set<string> | undefined;
+}
+
+const publishJobs = globalThis.__cognixPublishJobs ?? (globalThis.__cognixPublishJobs = new Set<string>());
 
 const publishSchema = z.object({
   slug: z
@@ -19,6 +26,50 @@ const publishSchema = z.object({
     .max(48)
     .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, "Use lowercase letters, numbers, and single hyphens."),
 });
+
+function publishErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "Production deployment failed.";
+  return [
+    "## Publication failed",
+    "",
+    "Cognix could not finish the production deployment.",
+    "",
+    "```text",
+    message.slice(-4000),
+    "```",
+    "",
+    "Fix the issue above, then publish again.",
+  ].join("\n");
+}
+
+function startPublishJob(project: Project, slug: string) {
+  if (publishJobs.has(project.id)) return;
+  publishJobs.add(project.id);
+  const previousPublishSlug = project.publishSlug;
+  const previousPublishedAt = project.publishedAt;
+
+  void deployPublishedApp(project)
+    .then(async () => {
+      await updateProject(project.id, project.ownerId, {
+        publishSlug: slug,
+        publishedAt: new Date().toISOString(),
+        status: "published",
+      });
+    })
+    .catch(async (error) => {
+      await Promise.allSettled([
+        updateProject(project.id, project.ownerId, {
+          publishSlug: previousPublishedAt ? previousPublishSlug : null,
+          publishedAt: previousPublishedAt,
+          status: "error",
+        }),
+        createMessage(project.id, "assistant", publishErrorMessage(error), { error: true }),
+      ]);
+    })
+    .finally(() => {
+      publishJobs.delete(project.id);
+    });
+}
 
 export async function POST(request: Request, context: Context) {
   try {
@@ -35,15 +86,27 @@ export async function POST(request: Request, context: Context) {
       return Response.json({ error: "That address is already taken. Choose another slug." }, { status: 409 });
     }
 
-    await deployPublishedApp(project);
-    const publishedAt = new Date().toISOString();
-    const updated = await updateProject(project.id, viewer.id, {
-      publishSlug: slug,
-      publishedAt,
-      status: "published",
+    if (publishJobs.has(project.id)) {
+      return Response.json(
+        { project, url: publishedAppUrl(request, slug), publishing: true },
+        { status: 202 },
+      );
+    }
+
+    const queued = await updateProject(project.id, viewer.id, {
+      ...(project.publishedAt ? {} : { publishSlug: slug }),
+      status: "publishing",
     });
-    if (!updated) return notFound();
-    return Response.json({ project: updated, url: publishedAppUrl(request, slug) });
+    if (!queued) return notFound();
+    startPublishJob(project, slug);
+    return Response.json(
+      {
+        project: queued,
+        url: publishedAppUrl(request, slug),
+        publishing: true,
+      },
+      { status: 202 },
+    );
   } catch (error) {
     const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
     if (code === "23505") {

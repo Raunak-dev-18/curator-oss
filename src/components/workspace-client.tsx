@@ -348,7 +348,7 @@ function PublishDialog({
               )}
               minLength={3}
               maxLength={48}
-              pattern="[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
+              pattern={"[a-z0-9][a-z0-9\\-]*[a-z0-9]"}
               placeholder="my-app"
               disabled={publishing}
               required
@@ -942,12 +942,38 @@ export function WorkspaceClient({
       if (!response.ok) throw new Error(payload.error ?? "Run the app successfully before publishing it.");
       setProject(payload.project);
       setPublishedUrl(payload.url);
+      if (response.status === 202 || payload.publishing === true) {
+        toast.message("Publishing started. Waiting for the production build…");
+        await pollPublication(publishSlug, payload.url);
+        toast.success(project.publishedAt ? "Publication updated." : "App published.");
+        return;
+      }
       toast.success(project.publishedAt ? "Publication updated." : "App published.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not publish this project.");
     } finally {
       setIsPublishing(false);
     }
+  }
+
+  async function pollPublication(targetSlug: string, targetUrl: string) {
+    for (let attempt = 0; attempt < 180; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 5_000));
+      const response = await fetch(`/api/projects/${project.id}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not check publishing status.");
+      const nextProject = payload.project as Project;
+      setProject(nextProject);
+      if (Array.isArray(payload.messages)) setMessages(payload.messages as Message[]);
+      if (nextProject.status === "published" && nextProject.publishedAt && nextProject.publishSlug === targetSlug) {
+        setPublishedUrl(targetUrl);
+        return;
+      }
+      if (nextProject.status === "error") {
+        throw new Error("Production deployment failed. Check the latest assistant message, fix the issue, and publish again.");
+      }
+    }
+    throw new Error("Publishing is still running. Refresh this project in a moment to check the result.");
   }
 
   async function unpublishProject() {
@@ -1032,7 +1058,7 @@ export function WorkspaceClient({
             <header className="chat-header">
               <div className="min-w-0">
                 <h1 className="truncate text-[13px] font-semibold">{project.title}</h1>
-                <p className="mt-0.5 text-[10px] text-white/38">{project.status === "building" ? "Building now" : project.status === "error" ? "Build needs attention" : project.publishedAt && project.status !== "published" ? "Changes ready to publish" : project.publishedAt ? "Published" : "All changes saved"}</p>
+                <p className="mt-0.5 text-[10px] text-white/38">{project.status === "building" ? "Building now" : project.status === "publishing" ? "Publishing production" : project.status === "error" ? "Build needs attention" : project.publishedAt && project.status !== "published" ? "Changes ready to publish" : project.publishedAt ? "Published" : "All changes saved"}</p>
               </div>
               <span className="inline-flex items-center gap-1.5 text-[10px] text-white/35"><History className="size-3.5" /> Saved automatically</span>
             </header>
@@ -1320,11 +1346,12 @@ export function WorkspaceClient({
                     setPublishSlug(project.publishSlug ?? publishSlugFromTitle(project.title));
                     setPublishDialogOpen(true);
                   }}
-                  disabled={!canPublish || isBuilding}
-                  aria-label={project.publishedAt ? "Manage publication" : "Publish app"}
-                  title={canPublish ? "Build and manage a permanent publication" : "Build the app before publishing"}
+                  disabled={!canPublish || isBuilding || isPublishing}
+                  aria-label={project.status === "publishing" ? "Publishing app" : project.publishedAt ? "Manage publication" : "Publish app"}
+                  title={project.status === "publishing" ? "Reconnect to the production deployment" : canPublish ? "Build and manage a permanent publication" : "Build the app before publishing"}
                 >
-                  <Rocket className="size-3.5" /><span className="toolbar-control-label">{project.publishedAt ? "Published" : "Publish"}</span>
+                  {project.status === "publishing" || isPublishing ? <LoaderCircle className="size-3.5 animate-spin" /> : <Rocket className="size-3.5" />}
+                  <span className="toolbar-control-label">{project.status === "publishing" || isPublishing ? "Publishing" : project.publishedAt ? "Published" : "Publish"}</span>
                 </button>
               </div>
             </header>
