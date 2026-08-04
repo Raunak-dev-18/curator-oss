@@ -68,6 +68,7 @@ export async function POST(request: Request, context: Context) {
 
     const encoder = new TextEncoder();
     let streamOpen = true;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
     const stream = new ReadableStream({
       start(controller) {
         const emit = (event: AgentEvent) => {
@@ -78,6 +79,10 @@ export async function POST(request: Request, context: Context) {
             streamOpen = false;
           }
         };
+
+        heartbeat = setInterval(() => {
+          emit({ type: "heartbeat", at: new Date().toISOString() });
+        }, 10_000);
 
         void runAgent({
           project,
@@ -96,6 +101,10 @@ export async function POST(request: Request, context: Context) {
             emit({ type: "error", message });
           })
           .finally(() => {
+            if (heartbeat) {
+              clearInterval(heartbeat);
+              heartbeat = null;
+            }
             if (!streamOpen) return;
             streamOpen = false;
             try {
@@ -107,13 +116,17 @@ export async function POST(request: Request, context: Context) {
       },
       cancel() {
         streamOpen = false;
+        if (heartbeat) {
+          clearInterval(heartbeat);
+          heartbeat = null;
+        }
       },
     });
 
     return new Response(stream, {
       headers: {
         "Content-Type": "application/x-ndjson; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
+        "Cache-Control": "no-store, no-cache, no-transform",
         "X-Accel-Buffering": "no",
       },
     });

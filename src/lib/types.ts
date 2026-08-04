@@ -105,6 +105,7 @@ export type VisualElementSelection = {
 };
 
 export type AgentEvent =
+  | { type: "heartbeat"; at: string }
   | { type: "status"; label: string }
   | { type: "token"; value: string }
   | { type: "tool_start"; id: string; name: string; input: unknown }

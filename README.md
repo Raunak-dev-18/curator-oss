@@ -2,6 +2,14 @@
 
 Cognix is a full-stack prompt-to-app builder built with Next.js. It gives each project a Daytona development sandbox, streams an OpenAI-compatible coding agent into a Lovable-style workspace, persists product data in Neon PostgreSQL, authenticates users with Auth0, and stores uploads in private Google Cloud Storage.
 
+## Support Us
+
+- Support us via Buy Me a Coffee: https://buymeacoffee.com/cognix/
+- Sponsor us on GitHub: https://github.com/sponsors/Raunak-dev-18/
+- Support us via PG: https://dodo.pe/curator-oss-support
+
+<iframe src="https://github.com/sponsors/Raunak-dev-18/card" title="Sponsor Raunak-dev-18" height="225" width="600" style="border: 0;"></iframe>
+
 ## What is included
 
 - Auth0 v4 authentication through the Next.js proxy and server-side session checks

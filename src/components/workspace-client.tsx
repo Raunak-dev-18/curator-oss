@@ -745,6 +745,7 @@ export function WorkspaceClient({
         let buffer = "";
 
         const handleEvent = (event: AgentEvent) => {
+          if (event.type === "heartbeat") return;
           if (event.type === "token") {
             setMessages((current) =>
               current.map((message) =>
@@ -846,7 +847,10 @@ export function WorkspaceClient({
 
         setActivities((current) => current.map((item) => ({ ...item, status: "done" })));
       } catch (error) {
-        const message = error instanceof Error ? error.message : "The build paused. Try again.";
+        const rawMessage = error instanceof Error ? error.message : "";
+        const message = /failed to fetch|network|load failed|quic|aborted/i.test(rawMessage)
+          ? "The live build connection dropped while Cognix was working. Your sandbox may still be saving changes; wait a moment, refresh the project, then continue the build."
+          : rawMessage || "The build paused. Try again.";
         setProject((current) => ({ ...current, status: "error" }));
         toast.error(message);
         setMessages((current) =>
