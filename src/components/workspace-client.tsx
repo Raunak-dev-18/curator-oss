@@ -1372,7 +1372,7 @@ export function WorkspaceClient({
 
             <div className="min-h-0 flex-1">
               {mode === "preview" ? (
-                currentPreviewUrl ? (
+                currentPreviewUrl && !isPreviewReconnecting ? (
                   <div className={cn("preview-frame-wrap", `is-${previewDevice}`)}>
                     <div className="preview-device-stage">
                       <iframe

@@ -176,7 +176,14 @@ export async function ensurePreviewUrl(project: Project, port = 3000) {
   }
 
   if (!health.healthy) return null;
-  return getVerifiedSignedPreviewUrl(sandbox, port);
+  const url = await getVerifiedSignedPreviewUrl(sandbox, port);
+  if (url) {
+    await updateProject(project.id, project.ownerId, {
+      previewUrl: url,
+      status: project.status === "published" || project.status === "publishing" ? project.status : "ready",
+    }).catch(() => null);
+  }
+  return url;
 }
 
 function shellQuote(value: string) {
@@ -428,7 +435,13 @@ export async function getPublishedAppRuntimeUrl(project: Project) {
   }
   if (!health.healthy) return null;
   await configurePublishedLifecycle(sandbox);
-  return getVerifiedSignedPreviewUrl(sandbox, PUBLISHED_PORT);
+  const runtimeUrl = await getVerifiedSignedPreviewUrl(sandbox, PUBLISHED_PORT);
+  if (runtimeUrl) {
+    await updateProject(project.id, project.ownerId, {
+      status: "published",
+    }).catch(() => null);
+  }
+  return runtimeUrl;
 }
 
 export async function stopPublishedApp(project: Project) {

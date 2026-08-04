@@ -28,6 +28,7 @@ export default async function PublishedAppPage({ params }: Props) {
   if (!runtimeUrl) {
     return (
       <main className="published-app-error">
+        <meta httpEquiv="refresh" content="4" />
         <div>
           <strong>This app is restarting</strong>
           <p>Refresh in a moment. Its saved production release is still available.</p>

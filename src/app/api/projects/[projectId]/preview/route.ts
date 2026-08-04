@@ -13,7 +13,7 @@ export async function GET(_request: Request, context: Context) {
     const { projectId } = await context.params;
     const project = await getProject(projectId, viewer.id);
     if (!project) return notFound();
-    const url = project.sandboxId ? (await ensurePreviewUrl(project)) ?? project.previewUrl : project.previewUrl;
+    const url = project.sandboxId ? await ensurePreviewUrl(project) : project.previewUrl;
     if (!url) {
       return Response.json(
         { error: project.sandboxId ? "The preview is still starting. Wait a moment, then refresh it." : "Start a build to create the live preview." },
