@@ -1,52 +1,36 @@
-import { ArrowRight, Box, Database, Plus, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, Database, Plus, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { BrandMark } from "@/components/brand-mark";
 import { DashboardComposer } from "@/components/dashboard-composer";
 import { ProjectCard } from "@/components/project-card";
 import { Sidebar } from "@/components/sidebar";
-import { getViewer, isAuthConfigured } from "@/lib/auth0";
+import { getViewer } from "@/lib/auth0";
 import { isDatabaseConfigured } from "@/lib/db";
 import { ensureUser, listProjects } from "@/lib/store";
 
+import { LandingNav } from "@/components/landing/landing-nav";
+import { LandingHero } from "@/components/landing/landing-hero";
+import { LandingWorkspaceDemo } from "@/components/landing/landing-workspace-demo";
+import { LandingHowItWorks } from "@/components/landing/landing-how-it-works";
+import { LandingFeatures } from "@/components/landing/landing-features";
+import { LandingShowcase } from "@/components/landing/landing-showcase";
+import { LandingComparison } from "@/components/landing/landing-comparison";
+import { LandingFAQ } from "@/components/landing/landing-faq";
+import { LandingCTA } from "@/components/landing/landing-cta";
+import { LandingFooter } from "@/components/landing/landing-footer";
+
 function SignedOutHome() {
   return (
-    <main className="auth-home">
-      <nav className="auth-nav" aria-label="Public navigation">
-        <Link href="/" className="inline-flex items-center gap-2" aria-label="Cognix home">
-          <BrandMark className="size-6" />
-          <span className="text-[14px] font-semibold">Cognix</span>
-        </Link>
-        {isAuthConfigured ? (
-          <div className="flex items-center gap-2">
-            <a href="/auth/login" className="secondary-auth-button">Sign in</a>
-            <a href="/auth/login?screen_hint=signup" className="primary-auth-button">Create account</a>
-          </div>
-        ) : null}
-      </nav>
-
-      <section className="auth-hero">
-        <div className="auth-eyebrow"><Sparkles className="size-3.5" /> AI full-stack builder</div>
-        <h1>Build working software from a conversation.</h1>
-        <p>Describe your product. Cognix writes the code, runs it in an isolated workspace, and gives you a live preview to refine.</p>
-        {isAuthConfigured ? (
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <a href="/auth/login?screen_hint=signup" className="auth-cta">
-              Start building <ArrowRight className="size-4" />
-            </a>
-            <a href="/auth/login" className="auth-signin">I already have an account</a>
-          </div>
-        ) : (
-          <div className="auth-config-notice">
-            Authentication is not configured. Add the Auth0 variables to <code>.env.local</code> and restart the app.
-          </div>
-        )}
-      </section>
-
-      <section className="auth-capabilities" aria-label="Product capabilities">
-        <article><Box className="size-4" /><strong>Isolated builds</strong><span>Every project runs in its own Daytona sandbox.</span></article>
-        <article><Database className="size-4" /><strong>Real application data</strong><span>Projects and conversations persist in Neon PostgreSQL.</span></article>
-        <article><ShieldCheck className="size-4" /><strong>Private by default</strong><span>Auth0 protects accounts and uploads stay in private storage.</span></article>
-      </section>
+    <main className="landing-shell">
+      <LandingNav />
+      <LandingHero />
+      <LandingWorkspaceDemo />
+      <LandingHowItWorks />
+      <LandingFeatures />
+      <LandingShowcase />
+      <LandingComparison />
+      <LandingFAQ />
+      <LandingCTA />
+      <LandingFooter />
     </main>
   );
 }
