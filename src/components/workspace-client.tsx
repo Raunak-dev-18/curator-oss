@@ -39,6 +39,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import type { RefObject } from "react";
 import { toast } from "sonner";
 import { hasPersistedPrompt, stripInitialBuildParams } from "@/lib/initial-build";
+import { CustomDomainsPanel } from "@/components/custom-domains-panel";
 import type {
   AgentEvent,
   AgentRunActivity,
@@ -252,6 +253,7 @@ type PublishDialogProps = {
   publishBaseLabel: string;
   canPublish: boolean;
   publishing: boolean;
+  domainRefreshKey: number;
   onSlugChange: (slug: string) => void;
   onClose: () => void;
   onPublish: () => void;
@@ -267,6 +269,7 @@ function PublishDialog({
   publishBaseLabel,
   canPublish,
   publishing,
+  domainRefreshKey,
   onSlugChange,
   onClose,
   onPublish,
@@ -365,6 +368,15 @@ function PublishDialog({
           </div>
         </div>
 
+        {open ? (
+          <CustomDomainsPanel
+            projectId={project.id}
+            published={Boolean(project.publishedAt)}
+            disabled={publishing}
+            refreshKey={domainRefreshKey}
+          />
+        ) : null}
+
         {publishedUrl && project.publishedAt ? (
           <div className="published-url-row">
             <span title={publishedUrl}>{publishedUrl}</span>
@@ -457,6 +469,7 @@ export function WorkspaceClient({
     () => "",
   );
   const [isPublishing, setIsPublishing] = useState(false);
+  const [domainRefreshKey, setDomainRefreshKey] = useState(0);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isCompact, setIsCompact] = useState(false);
   const [relativeNow, setRelativeNow] = useState(() => new Date(initialNow).getTime());
@@ -959,9 +972,11 @@ export function WorkspaceClient({
       if (response.status === 202 || payload.publishing === true) {
         toast.message("Publishing started. Waiting for the production build…");
         await pollPublication(publishSlug, payload.url);
+        setDomainRefreshKey((current) => current + 1);
         toast.success(project.publishedAt ? "Publication updated." : "App published.");
         return;
       }
+      setDomainRefreshKey((current) => current + 1);
       toast.success(project.publishedAt ? "Publication updated." : "App published.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not publish this project.");
@@ -1050,6 +1065,7 @@ export function WorkspaceClient({
         publishBaseLabel={publishBaseLabel}
         canPublish={canPublish}
         publishing={isPublishing}
+        domainRefreshKey={domainRefreshKey}
         onSlugChange={setPublishSlug}
         onClose={() => {
           if (!isPublishing) setPublishDialogOpen(false);

@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -94,4 +95,30 @@ export const attachments = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index("attachments_project_idx").on(table.projectId)],
+);
+
+export const projectDomains = pgTable(
+  "project_domains",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    hostname: text("hostname").notNull(),
+    status: text("status").default("pending").notNull(),
+    verificationToken: text("verification_token").notNull(),
+    managedByProvider: boolean("managed_by_provider").default(false).notNull(),
+    lastError: text("last_error"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("project_domains_hostname_unique").on(table.hostname),
+    index("project_domains_project_idx").on(table.projectId, table.createdAt),
+  ],
 );

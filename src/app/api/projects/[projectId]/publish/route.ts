@@ -1,9 +1,17 @@
 import { z } from "zod";
 import { requireViewer } from "@/lib/auth0";
 import { deployPublishedApp, stopPublishedApp } from "@/lib/daytona";
+import { verifyProjectDomains } from "@/lib/dns";
+import { domainView } from "@/lib/domains";
 import { errorResponse, notFound } from "@/lib/http";
 import { publishedAppUrl } from "@/lib/publish-url";
-import { createMessage, getProject, getProjectByPublishSlug, updateProject } from "@/lib/store";
+import {
+  createMessage,
+  getProject,
+  getProjectByPublishSlug,
+  listProjectDomains,
+  updateProject,
+} from "@/lib/store";
 import type { Project } from "@/lib/types";
 
 type Context = { params: Promise<{ projectId: string }> };
@@ -55,6 +63,8 @@ function startPublishJob(project: Project, slug: string) {
         publishedAt: new Date().toISOString(),
         status: "published",
       });
+      // Attached domains can already have correct DNS, so activate them as part of the deployment.
+      await verifyProjectDomains(project.id).catch(() => undefined);
     })
     .catch(async (error) => {
       await Promise.allSettled([
@@ -103,6 +113,7 @@ export async function POST(request: Request, context: Context) {
       {
         project: queued,
         url: publishedAppUrl(request, slug),
+        domains: (await listProjectDomains(project.id)).map(domainView),
         publishing: true,
       },
       { status: 202 },

@@ -62,6 +62,39 @@ export type Attachment = {
   createdAt: string;
 };
 
+export type ProjectDomainStatus = "pending" | "active" | "error";
+
+export type ProjectDomain = {
+  id: string;
+  projectId: string;
+  ownerId: string;
+  hostname: string;
+  status: ProjectDomainStatus;
+  verificationToken: string;
+  managedByProvider: boolean;
+  lastError: string | null;
+  verifiedAt: string | null;
+  lastCheckedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DomainRecordType = "TXT" | "CNAME" | "A";
+
+export type DomainDnsRecord = {
+  type: DomainRecordType;
+  name: string;
+  value: string;
+  ttl: number;
+  purpose: "verification" | "routing";
+  note?: string;
+};
+
+export type ProjectDomainView = ProjectDomain & {
+  records: DomainDnsRecord[];
+  url: string;
+};
+
 export type Viewer = {
   id: string;
   email: string;

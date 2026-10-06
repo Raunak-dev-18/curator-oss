@@ -1,11 +1,13 @@
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { db } from "./db";
-import { attachments, messages, projectFiles, projects, users } from "./db/schema";
+import { attachments, messages, projectDomains, projectFiles, projects, users } from "./db/schema";
 import type {
   Attachment,
   Message,
   MessageRole,
   Project,
+  ProjectDomain,
+  ProjectDomainStatus,
   ProjectFile,
   ProjectStatus,
   Viewer,
@@ -17,6 +19,7 @@ type MemoryStore = {
   messages: Message[];
   files: ProjectFile[];
   attachments: Attachment[];
+  domains: ProjectDomain[];
 };
 
 declare global {
@@ -30,7 +33,11 @@ const memory =
     messages: [],
     files: [],
     attachments: [],
+    domains: [],
   });
+
+// Keeps development sessions working when an older in-memory store is reused after a reload.
+memory.domains ??= [];
 
 function mapProject(row: typeof projects.$inferSelect): Project {
   return {
@@ -67,6 +74,23 @@ function mapFile(row: typeof projectFiles.$inferSelect): ProjectFile {
     path: row.path,
     content: row.content,
     size: row.size,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function mapDomain(row: typeof projectDomains.$inferSelect): ProjectDomain {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    ownerId: row.ownerId,
+    hostname: row.hostname,
+    status: row.status as ProjectDomainStatus,
+    verificationToken: row.verificationToken,
+    managedByProvider: row.managedByProvider,
+    lastError: row.lastError,
+    verifiedAt: row.verifiedAt?.toISOString() ?? null,
+    lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -369,4 +393,139 @@ export async function updateAttachmentSandboxPath(id: string, sandboxPath: strin
   }
   const [row] = await db.update(attachments).set({ sandboxPath }).where(eq(attachments.id, id)).returning();
   return row ? mapAttachment(row) : null;
+}
+
+export async function listProjectDomains(projectId: string): Promise<ProjectDomain[]> {
+  if (!db) {
+    return memory.domains
+      .filter((domain) => domain.projectId === projectId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+  return (
+    await db
+      .select()
+      .from(projectDomains)
+      .where(eq(projectDomains.projectId, projectId))
+      .orderBy(asc(projectDomains.createdAt))
+  ).map(mapDomain);
+}
+
+export async function getProjectDomain(id: string, projectId: string): Promise<ProjectDomain | null> {
+  if (!db) {
+    return memory.domains.find((domain) => domain.id === id && domain.projectId === projectId) ?? null;
+  }
+  const [row] = await db
+    .select()
+    .from(projectDomains)
+    .where(and(eq(projectDomains.id, id), eq(projectDomains.projectId, projectId)))
+    .limit(1);
+  return row ? mapDomain(row) : null;
+}
+
+export async function getProjectDomainByHostname(hostname: string): Promise<ProjectDomain | null> {
+  if (!db) {
+    return memory.domains.find((domain) => domain.hostname === hostname) ?? null;
+  }
+  const [row] = await db.select().from(projectDomains).where(eq(projectDomains.hostname, hostname)).limit(1);
+  return row ? mapDomain(row) : null;
+}
+
+export async function createProjectDomain(input: {
+  projectId: string;
+  ownerId: string;
+  hostname: string;
+  verificationToken: string;
+  managedByProvider?: boolean;
+}): Promise<ProjectDomain> {
+  const now = new Date().toISOString();
+  if (!db) {
+    const domain: ProjectDomain = {
+      id: crypto.randomUUID(),
+      projectId: input.projectId,
+      ownerId: input.ownerId,
+      hostname: input.hostname,
+      status: "pending",
+      verificationToken: input.verificationToken,
+      managedByProvider: input.managedByProvider ?? false,
+      lastError: null,
+      verifiedAt: null,
+      lastCheckedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    memory.domains.push(domain);
+    return domain;
+  }
+  const [row] = await db
+    .insert(projectDomains)
+    .values({
+      projectId: input.projectId,
+      ownerId: input.ownerId,
+      hostname: input.hostname,
+      verificationToken: input.verificationToken,
+      managedByProvider: input.managedByProvider ?? false,
+    })
+    .returning();
+  return mapDomain(row);
+}
+
+export async function updateProjectDomain(
+  id: string,
+  patch: Partial<
+    Pick<ProjectDomain, "status" | "lastError" | "verifiedAt" | "lastCheckedAt" | "managedByProvider">
+  >,
+): Promise<ProjectDomain | null> {
+  if (!db) {
+    const index = memory.domains.findIndex((domain) => domain.id === id);
+    if (index < 0) return null;
+    memory.domains[index] = {
+      ...memory.domains[index],
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    };
+    return memory.domains[index];
+  }
+  const { verifiedAt, lastCheckedAt, ...databasePatch } = patch;
+  const [row] = await db
+    .update(projectDomains)
+    .set({
+      ...databasePatch,
+      ...(verifiedAt !== undefined ? { verifiedAt: verifiedAt ? new Date(verifiedAt) : null } : {}),
+      ...(lastCheckedAt !== undefined ? { lastCheckedAt: lastCheckedAt ? new Date(lastCheckedAt) : null } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(projectDomains.id, id))
+    .returning();
+  return row ? mapDomain(row) : null;
+}
+
+export async function deleteProjectDomain(id: string, projectId: string): Promise<boolean> {
+  if (!db) {
+    const before = memory.domains.length;
+    memory.domains = memory.domains.filter((domain) => domain.id !== id || domain.projectId !== projectId);
+    return memory.domains.length < before;
+  }
+  const removed = await db
+    .delete(projectDomains)
+    .where(and(eq(projectDomains.id, id), eq(projectDomains.projectId, projectId)))
+    .returning();
+  return removed.length > 0;
+}
+
+export async function getPublishedProjectByHostname(
+  hostname: string,
+): Promise<{ project: Project; domain: ProjectDomain } | null> {
+  const domain = await getProjectDomainByHostname(hostname);
+  if (!domain || domain.status !== "active") return null;
+  const project = await getProjectById(domain.projectId);
+  if (!project?.publishedAt) return null;
+  return { project, domain };
+}
+
+async function getProjectById(id: string): Promise<Project | null> {
+  if (!db) {
+    return memory.projects.find((project) => project.id === id) ?? null;
+  }
+  const [row] = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+  return row ? mapProject(row) : null;
 }

@@ -19,6 +19,7 @@ Cognix is a full-stack prompt-to-app builder built with Next.js. It gives each p
 - Multi-turn streamed tool loop for listing, reading, writing, searching, running, and previewing code
 - Private Google Cloud Storage uploads, with image inputs staged into Daytona and sent to vision-capable models
 - Responsive dashboard, project chat, live iframe preview, file explorer, and editable code view
+- Custom domains for published apps, with DNS instructions, verification, and a dark not-published page
 - Auth0-powered sign-in and account creation with real profile avatars
 
 ## Architecture
@@ -87,6 +88,31 @@ OPENAI_MODEL=YOUR_TOOL_CAPABLE_MODEL
 ```
 
 The provider must implement the OpenAI Chat Completions streaming and tool-calling shape. Use a vision-capable model when prompts include image attachments.
+
+### Custom domains
+
+Published apps can also be served on a domain the customer owns. Configure the routing targets:
+
+```dotenv
+# Hosts that always serve Cognix itself. Routing stays disabled until one is known.
+COGNIX_APP_HOSTS=cognix.example.com
+# What customer subdomains point at. Defaults to the APP_BASE_URL host.
+COGNIX_DOMAIN_CNAME_TARGET=cognix.example.com
+# Optional address for root domains, which cannot use a CNAME.
+COGNIX_DOMAIN_IPV4=203.0.113.10
+# Optional Cloudflare token with DNS edit permission on the customer zone.
+CLOUDFLARE_API_TOKEN=
+```
+
+Attach a domain from the publish dialog. Cognix shows the two records to create: a `TXT` record at
+`_cognix-challenge.<host>` that proves ownership, and a `CNAME` (or `A` for a root domain) that routes traffic.
+Choosing **Check DNS** resolves both over DNS-over-HTTPS and marks the domain live when they match. Publishing a
+project re-checks every attached domain, so correct DNS activates without a second click. With
+`CLOUDFLARE_API_TOKEN` set and the zone in that account, Cognix creates and removes those records itself.
+
+Requests that arrive on an attached, live domain are served the published app only: the builder, its API, and Auth0
+are never reachable from a customer domain. Requests for an unknown slug or domain, or for a project that is no
+longer published, return a dark 404 page.
 
 ### Google Cloud Storage
 
