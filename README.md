@@ -115,7 +115,9 @@ add the domain to the project on Vercel, or use a reverse proxy with on-demand c
 
 Deep links are forwarded: `https://app.customer.com/pricing?plan=pro` and `/publish/<slug>/pricing?plan=pro` open that
 same page inside the published app.
-Choosing **Check DNS** resolves both over DNS-over-HTTPS and marks the domain live when they match. Publishing a
+Choosing **Check DNS** resolves both over DNS-over-HTTPS, then requests `https://<host>/.well-known/cognix-domain-check`
+to confirm traffic really reaches Cognix. A domain is marked live only when both succeed, so a reverse proxy that has
+no route for the hostname (Traefik's "no available server", for example) shows as **Needs attention** with the fix. Publishing a
 project re-checks every attached domain, so correct DNS activates without a second click. With
 `CLOUDFLARE_API_TOKEN` set and the zone in that account, Cognix creates and removes those records itself.
 

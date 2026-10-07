@@ -7,6 +7,15 @@ export const DEFAULT_RECORD_TTL = 300;
 export const DOMAIN_HOST_HEADER = "x-cognix-domain-host";
 /** Set by the proxy so a custom domain deep link opens the same path inside the published app. */
 export const DOMAIN_PATH_HEADER = "x-cognix-domain-path";
+/**
+ * Answered by the Cognix proxy itself on every hostname. Verification fetches it through the customer
+ * domain to prove traffic really reaches Cognix, not just that DNS records exist.
+ */
+export const DOMAIN_PROBE_PATH = "/.well-known/cognix-domain-check";
+
+export function domainProbeBody(hostname: string) {
+  return `cognix-domain-check ${hostname}`;
+}
 
 const MAX_HOSTNAME_LENGTH = 253;
 const LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;

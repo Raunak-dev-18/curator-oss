@@ -4,6 +4,8 @@ import { auth0 } from "@/lib/auth0";
 import {
   DOMAIN_HOST_HEADER,
   DOMAIN_PATH_HEADER,
+  DOMAIN_PROBE_PATH,
+  domainProbeBody,
   hostnameFromHeader,
   isAppHostname,
   isCustomDomainRoutingEnabled,
@@ -19,6 +21,13 @@ function requestHostname(request: NextRequest) {
 
 export async function proxy(request: NextRequest) {
   const hostname = requestHostname(request);
+
+  // Lets domain verification confirm that a hostname's traffic actually reaches this server.
+  if (request.nextUrl.pathname === DOMAIN_PROBE_PATH) {
+    return new NextResponse(domainProbeBody(hostname), {
+      headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
 
   // A request that arrives on an attached customer domain only ever serves that published app,
   // never the builder, its API, or an Auth0 session.

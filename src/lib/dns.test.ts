@@ -113,6 +113,9 @@ describe("stored verification outcome", () => {
   it("activates a domain once both records resolve", async () => {
     globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input));
+      if (url.pathname === "/.well-known/cognix-domain-check") {
+        return new Response(`cognix-domain-check ${url.hostname}`, { status: 200 });
+      }
       const type = url.searchParams.get("type");
       if (type === "TXT") {
         return dohResponse([
@@ -137,6 +140,48 @@ describe("stored verification outcome", () => {
     expect(pending.status).toBe("pending");
     expect(pending.verifiedAt).toBeNull();
     expect(pending.lastError).toContain("_cognix-challenge.waiting.example.com");
+  });
+
+  function dnsReadyFetch(probe: (url: URL) => Response | Promise<Response>) {
+    return vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/.well-known/cognix-domain-check") return probe(url);
+      const type = url.searchParams.get("type");
+      if (type === "TXT") {
+        return dohResponse([{ name: url.searchParams.get("name") ?? "", type: 16, data: '"cognix-domain-verification=abc"' }]);
+      }
+      if (type === "CNAME") return dohResponse([{ name: "x", type: 5, data: "apps.cognix.example.com." }]);
+      return dohResponse([]);
+    }) as unknown as typeof fetch;
+  }
+
+  it("does not mark a domain live when the hosting proxy has no route for it", async () => {
+    globalThis.fetch = dnsReadyFetch(() => new Response("no available server", { status: 503 }));
+    const domain = await verifyProjectDomain(await attach("unrouted.example.com"));
+    expect(domain.status).toBe("error");
+    expect(domain.verifiedAt).toBeNull();
+    expect(domain.lastError).toContain("no available server");
+    expect(domain.lastError).toContain("unrouted.example.com");
+  });
+
+  it("explains a missing certificate when only plain HTTP reaches Cognix", async () => {
+    globalThis.fetch = dnsReadyFetch((url) => {
+      if (url.protocol === "https:") throw new TypeError("certificate error");
+      return new Response(`cognix-domain-check ${url.hostname}`, { status: 200 });
+    });
+    const domain = await verifyProjectDomain(await attach("notls.example.com"));
+    expect(domain.status).toBe("error");
+    expect(domain.lastError).toMatch(/TLS certificate/);
+  });
+
+  it("keeps an already live domain live through a transient network failure", async () => {
+    globalThis.fetch = dnsReadyFetch(() => {
+      throw new TypeError("fetch failed");
+    });
+    const live = await attach("flaky.example.com");
+    stored.set(live.id, { ...live, status: "active", verifiedAt: new Date().toISOString() });
+    const domain = await verifyProjectDomain(stored.get(live.id)!);
+    expect(domain.status).toBe("active");
   });
 
   it("reports a configuration error when no routing target exists", async () => {
