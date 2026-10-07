@@ -9,6 +9,26 @@ let client: Daytona | null = null;
 const PUBLISHED_PORT = 3001;
 const PREVIEW_URL_TTL_SECONDS = 60 * 60;
 const PREVIEW_PROXY_VERIFY_ATTEMPTS = 5;
+// Reuse a published runtime URL well inside its signed lifetime so visitors always get a fresh-enough link.
+const PUBLISHED_URL_REUSE_MS = 45 * 60 * 1000;
+// Within this window a cached URL is served without any network check.
+const PUBLISHED_URL_RECHECK_MS = 30 * 1000;
+
+type PublishedRuntime = { url: string; issuedAt: number; checkedAt: number };
+
+declare global {
+  var __cognixPublishedRuntimes: Map<string, PublishedRuntime> | undefined;
+  var __cognixPublishedRuntimeLookups: Map<string, Promise<string | null>> | undefined;
+}
+
+const publishedRuntimes = globalThis.__cognixPublishedRuntimes ?? (globalThis.__cognixPublishedRuntimes = new Map());
+const publishedRuntimeLookups =
+  globalThis.__cognixPublishedRuntimeLookups ?? (globalThis.__cognixPublishedRuntimeLookups = new Map());
+
+function rememberPublishedRuntime(projectId: string, url: string) {
+  const now = Date.now();
+  publishedRuntimes.set(projectId, { url, issuedAt: now, checkedAt: now });
+}
 
 function getClient() {
   if (!process.env.DAYTONA_API_KEY) {
@@ -93,23 +113,28 @@ export function isHealthyPreviewStatus(status: number) {
 async function getVerifiedSignedPreviewUrl(sandbox: Sandbox, port: number) {
   for (let attempt = 0; attempt < PREVIEW_PROXY_VERIFY_ATTEMPTS; attempt += 1) {
     const preview = await sandbox.getSignedPreviewUrl(port, PREVIEW_URL_TTL_SECONDS);
-    try {
-      const response = await fetch(preview.url, {
-        cache: "no-store",
-        redirect: "manual",
-        signal: AbortSignal.timeout(8_000),
-        headers: { "X-Daytona-Skip-Preview-Warning": "true" },
-      });
-      await response.body?.cancel();
-      if (isHealthyPreviewStatus(response.status)) return preview.url;
-    } catch {
-      // Daytona's external preview proxy can trail the local port by a few seconds.
-    }
+    if (await isPreviewUrlHealthy(preview.url)) return preview.url;
     if (attempt < PREVIEW_PROXY_VERIFY_ATTEMPTS - 1) {
       await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
     }
   }
   return null;
+}
+
+async function isPreviewUrlHealthy(url: string, timeoutMs = 8_000) {
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: { "X-Daytona-Skip-Preview-Warning": "true" },
+    });
+    await response.body?.cancel();
+    return isHealthyPreviewStatus(response.status);
+  } catch {
+    // Daytona's external preview proxy can trail the local port by a few seconds.
+    return false;
+  }
 }
 
 export async function getPreviewUrl(project: Project, port = 3000) {
@@ -412,6 +437,7 @@ export async function deployPublishedApp(project: Project) {
     await configurePublishedLifecycle(sandbox);
     const runtimeUrl = await getVerifiedSignedPreviewUrl(sandbox, PUBLISHED_PORT);
     if (!runtimeUrl) throw new Error("The production server started, but its public proxy did not become ready.");
+    rememberPublishedRuntime(project.id, runtimeUrl);
     return { runtimeUrl, port: PUBLISHED_PORT };
   } finally {
     if (resumePreview) {
@@ -420,7 +446,36 @@ export async function deployPublishedApp(project: Project) {
   }
 }
 
+/**
+ * Returns a verified URL for the published production server.
+ * Hot path: a recently verified URL is reused, and concurrent visitors share one lookup,
+ * so a page view normally costs no Daytona API calls.
+ */
 export async function getPublishedAppRuntimeUrl(project: Project) {
+  const cached = publishedRuntimes.get(project.id);
+  if (cached && Date.now() - cached.issuedAt < PUBLISHED_URL_REUSE_MS) {
+    if (Date.now() - cached.checkedAt < PUBLISHED_URL_RECHECK_MS) return cached.url;
+    if (await isPreviewUrlHealthy(cached.url, 5_000)) {
+      cached.checkedAt = Date.now();
+      return cached.url;
+    }
+  }
+  publishedRuntimes.delete(project.id);
+
+  let lookup = publishedRuntimeLookups.get(project.id);
+  if (!lookup) {
+    lookup = resolvePublishedAppRuntimeUrl(project)
+      .then((url) => {
+        if (url) rememberPublishedRuntime(project.id, url);
+        return url;
+      })
+      .finally(() => publishedRuntimeLookups.delete(project.id));
+    publishedRuntimeLookups.set(project.id, lookup);
+  }
+  return lookup;
+}
+
+async function resolvePublishedAppRuntimeUrl(project: Project) {
   const sandbox = await getSandbox(project);
   if (!sandbox) return null;
   const root = await getProjectRoot(sandbox);
@@ -445,10 +500,52 @@ export async function getPublishedAppRuntimeUrl(project: Project) {
 }
 
 export async function stopPublishedApp(project: Project) {
+  publishedRuntimes.delete(project.id);
   const sandbox = await getSandbox(project);
   if (!sandbox) return;
   await stopPublishedSession(sandbox, project);
   await sandbox.setAutostopInterval(30);
   await sandbox.setAutoArchiveInterval(1440);
   await sandbox.setAutoDeleteInterval(-1);
+}
+
+export async function syncProjectEnv(project: Project) {
+  const sandbox = await getSandbox(project);
+  if (!sandbox) return;
+
+  const { getDecryptedSecrets } = await import("./store");
+  const { renderEnvFile } = await import("./env-files");
+  
+  const secrets = await getDecryptedSecrets(project.id);
+  const envContent = renderEnvFile(secrets);
+
+  const root = await getProjectRoot(sandbox);
+  const envPath = `${root}/.env.local`;
+  
+  await sandbox.fs.uploadFile(Buffer.from(envContent), envPath);
+  await sandbox.process.executeCommand(`chmod 600 ${shellQuote(envPath)}`, root, undefined, 10);
+  await sandbox.process.executeCommand(`grep -q '^\\.env\\*$' .gitignore || echo '.env*' >> .gitignore`, root, undefined, 10);
+
+  // Restart development session
+  const sessionId = `cognix-preview-${project.id.slice(0, 12)}`;
+  let hasActiveCommand = false;
+  try {
+    const session = await sandbox.process.getSession(sessionId);
+    hasActiveCommand = session.commands?.some((command) => command.exitCode == null) ?? false;
+  } catch {
+    // Session doesn't exist
+  }
+  
+  if (hasActiveCommand) {
+    const health = await getPreviewHealth(sandbox, 3000);
+    if (health.reachable) {
+      await sandbox.process.executeCommand(
+        "if command -v fuser >/dev/null 2>&1; then fuser -k 3000/tcp >/dev/null 2>&1 || true; fi",
+        root,
+        undefined,
+        20,
+      );
+    }
+    await resumeDevelopmentPreview(sandbox, project, root).catch(() => undefined);
+  }
 }

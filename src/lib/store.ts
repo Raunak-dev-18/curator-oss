@@ -1,6 +1,7 @@
+import { encryptSecret, decryptSecret } from './secrets-crypto';
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { db } from "./db";
-import { attachments, messages, projectDomains, projectFiles, projects, users } from "./db/schema";
+import { attachments, messages, projectDomains, projectFiles, projects, users, projectSecrets, projectCloud } from "./db/schema";
 import type {
   Attachment,
   Message,
@@ -11,6 +12,9 @@ import type {
   ProjectFile,
   ProjectStatus,
   Viewer,
+  ProjectSecret,
+  ProjectCloud,
+  ProjectCloudStatus,
 } from "./types";
 import { titleFromPrompt } from "./utils";
 
@@ -20,6 +24,8 @@ type MemoryStore = {
   files: ProjectFile[];
   attachments: Attachment[];
   domains: ProjectDomain[];
+  secrets: (ProjectSecret & { ciphertext: string; iv: string; authTag: string })[];
+  clouds: ProjectCloud[];
 };
 
 declare global {
@@ -34,10 +40,14 @@ const memory =
     files: [],
     attachments: [],
     domains: [],
+    secrets: [],
+    clouds: [],
   });
 
 // Keeps development sessions working when an older in-memory store is reused after a reload.
 memory.domains ??= [];
+memory.secrets ??= [];
+memory.clouds ??= [];
 
 function mapProject(row: typeof projects.$inferSelect): Project {
   return {
@@ -528,4 +538,188 @@ async function getProjectById(id: string): Promise<Project | null> {
   }
   const [row] = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
   return row ? mapProject(row) : null;
+}
+
+
+function mapSecret(row: typeof projectSecrets.$inferSelect): ProjectSecret {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    name: row.name,
+    managedBy: row.managedBy as "user" | "cloud",
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function mapCloud(row: typeof projectCloud.$inferSelect): ProjectCloud {
+  return {
+    projectId: row.projectId,
+    status: row.status as ProjectCloudStatus,
+    neonProjectId: row.neonProjectId,
+    neonRegion: row.neonRegion,
+    storageEnabled: row.storageEnabled,
+    appTokenHash: row.appTokenHash,
+    authEnabled: row.authEnabled,
+    lastError: row.lastError,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function listSecretNames(projectId: string): Promise<ProjectSecret[]> {
+  if (!db) {
+    return memory.secrets
+      .filter((s) => s.projectId === projectId)
+      .map((s) => ({ id: s.id, projectId: s.projectId, name: s.name, managedBy: s.managedBy, updatedAt: s.updatedAt } as ProjectSecret))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const rows = await db.select().from(projectSecrets).where(eq(projectSecrets.projectId, projectId));
+  return rows.map(mapSecret).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function upsertSecret(projectId: string, name: string, value: string, managedBy: "user" | "cloud" = "user"): Promise<ProjectSecret> {
+  const encrypted = encryptSecret(value);
+  const now = new Date();
+  
+  if (!db) {
+    const existingIdx = memory.secrets.findIndex(s => s.projectId === projectId && s.name === name);
+    if (existingIdx >= 0) {
+      memory.secrets[existingIdx] = {
+        ...memory.secrets[existingIdx],
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        authTag: encrypted.authTag,
+        managedBy,
+        updatedAt: now.toISOString(),
+      };
+      const rest = { id: memory.secrets[existingIdx].id, projectId: memory.secrets[existingIdx].projectId, name: memory.secrets[existingIdx].name, managedBy: memory.secrets[existingIdx].managedBy, updatedAt: memory.secrets[existingIdx].updatedAt };
+      return rest as ProjectSecret;
+    } else {
+      const newSecret = {
+        id: crypto.randomUUID(),
+        projectId,
+        name,
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        authTag: encrypted.authTag,
+        managedBy,
+        updatedAt: now.toISOString(),
+      };
+      memory.secrets.push(newSecret);
+      const rest = { id: newSecret.id, projectId: newSecret.projectId, name: newSecret.name, managedBy: newSecret.managedBy, updatedAt: newSecret.updatedAt };
+      return rest as ProjectSecret;
+    }
+  }
+
+  const [row] = await db.insert(projectSecrets).values({
+    projectId,
+    name,
+    ciphertext: encrypted.ciphertext,
+    iv: encrypted.iv,
+    authTag: encrypted.authTag,
+    managedBy,
+  }).onConflictDoUpdate({
+    target: [projectSecrets.projectId, projectSecrets.name],
+    set: {
+      ciphertext: encrypted.ciphertext,
+      iv: encrypted.iv,
+      authTag: encrypted.authTag,
+      managedBy,
+      updatedAt: now,
+    }
+  }).returning();
+
+  return mapSecret(row);
+}
+
+export async function deleteSecret(projectId: string, name: string): Promise<boolean> {
+  if (!db) {
+    const before = memory.secrets.length;
+    memory.secrets = memory.secrets.filter(s => !(s.projectId === projectId && s.name === name));
+    return memory.secrets.length < before;
+  }
+  const removed = await db.delete(projectSecrets).where(and(eq(projectSecrets.projectId, projectId), eq(projectSecrets.name, name))).returning();
+  return removed.length > 0;
+}
+
+export async function getDecryptedSecrets(projectId: string): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  if (!db) {
+    for (const secret of memory.secrets.filter(s => s.projectId === projectId)) {
+      try {
+        result[secret.name] = decryptSecret({ ciphertext: secret.ciphertext, iv: secret.iv, authTag: secret.authTag });
+      } catch (e) {
+        console.error(`Failed to decrypt secret ${secret.name}`, e);
+      }
+    }
+    return result;
+  }
+  
+  const rows = await db.select().from(projectSecrets).where(eq(projectSecrets.projectId, projectId));
+  for (const row of rows) {
+    try {
+      result[row.name] = decryptSecret({ ciphertext: row.ciphertext, iv: row.iv, authTag: row.authTag });
+    } catch (e) {
+      console.error(`Failed to decrypt secret ${row.name}`, e);
+    }
+  }
+  return result;
+}
+
+export async function getProjectCloud(projectId: string): Promise<ProjectCloud | null> {
+  if (!db) {
+    return memory.clouds.find(c => c.projectId === projectId) ?? null;
+  }
+  const [row] = await db.select().from(projectCloud).where(eq(projectCloud.projectId, projectId)).limit(1);
+  return row ? mapCloud(row) : null;
+}
+
+export async function updateProjectCloud(projectId: string, patch: Partial<Omit<ProjectCloud, "projectId" | "createdAt" | "updatedAt">>): Promise<ProjectCloud> {
+  const now = new Date();
+  
+  if (!db) {
+    const existingIdx = memory.clouds.findIndex(c => c.projectId === projectId);
+    if (existingIdx >= 0) {
+      memory.clouds[existingIdx] = {
+        ...memory.clouds[existingIdx],
+        ...patch,
+        updatedAt: now.toISOString(),
+      };
+      return memory.clouds[existingIdx];
+    } else {
+      const newCloud: ProjectCloud = {
+        projectId,
+        status: patch.status ?? "disabled",
+        neonProjectId: patch.neonProjectId ?? null,
+        neonRegion: patch.neonRegion ?? null,
+        storageEnabled: patch.storageEnabled ?? false,
+        appTokenHash: patch.appTokenHash ?? null,
+        authEnabled: patch.authEnabled ?? false,
+        lastError: patch.lastError ?? null,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      };
+      memory.clouds.push(newCloud);
+      return newCloud;
+    }
+  }
+
+  const [row] = await db.insert(projectCloud).values({
+    projectId,
+    status: patch.status ?? "disabled",
+    neonProjectId: patch.neonProjectId,
+    neonRegion: patch.neonRegion,
+    storageEnabled: patch.storageEnabled ?? false,
+    appTokenHash: patch.appTokenHash,
+    authEnabled: patch.authEnabled ?? false,
+    lastError: patch.lastError,
+  }).onConflictDoUpdate({
+    target: [projectCloud.projectId],
+    set: {
+      ...patch,
+      updatedAt: now,
+    }
+  }).returning();
+
+  return mapCloud(row);
 }

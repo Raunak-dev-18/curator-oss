@@ -1,5 +1,6 @@
 import {
   dnsRecordsFor,
+  domainSetup,
   domainTargets,
   evaluateDomainVerification,
   isApexHostname,
@@ -78,7 +79,7 @@ export async function verifyProjectDomain(domain: ProjectDomain): Promise<Projec
     return (
       (await updateProjectDomain(domain.id, {
         status: "error",
-        lastError: "Custom domains are not configured on this deployment. Ask the operator to set COGNIX_DOMAIN_CNAME_TARGET.",
+        lastError: domainSetup().message,
         lastCheckedAt: checkedAt,
       })) ?? domain
     );

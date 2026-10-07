@@ -1,10 +1,12 @@
-import type { DomainDnsRecord, ProjectDomain, ProjectDomainView } from "./types";
+import type { DomainDnsRecord, DomainSetup, ProjectDomain, ProjectDomainView } from "./types";
 
 export const VERIFICATION_PREFIX = "_cognix-challenge";
 export const VERIFICATION_VALUE_PREFIX = "cognix-domain-verification=";
 export const DEFAULT_RECORD_TTL = 300;
 /** Set by the proxy so the domain page only renders for requests that really arrived on that host. */
 export const DOMAIN_HOST_HEADER = "x-cognix-domain-host";
+/** Set by the proxy so a custom domain deep link opens the same path inside the published app. */
+export const DOMAIN_PATH_HEADER = "x-cognix-domain-path";
 
 const MAX_HOSTNAME_LENGTH = 253;
 const LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -48,7 +50,7 @@ export class DomainRequestError extends Error {
 }
 
 export type DomainTargets = {
-  cname: string;
+  cname: string | null;
   ipv4: string | null;
 };
 
@@ -197,15 +199,58 @@ export function verificationRecordValue(token: string) {
 /** Reads the routing targets an operator configured for published custom domains. */
 export function domainTargets(env: DomainEnv = process.env): DomainTargets {
   const configuredCname = hostnameFromValue(env.COGNIX_DOMAIN_CNAME_TARGET ?? "");
-  const appHost = appHostnames(env)[0] ?? "";
+  // localhost, private TLDs, and raw IPs can never be reached from a customer's DNS record.
+  const cname = [configuredCname, ...appHostnames(env)].find(isPublicHostname) ?? null;
   const ipv4 = (env.COGNIX_DOMAIN_IPV4 ?? "").trim();
   return {
-    cname: configuredCname || appHost,
-    ipv4: ipv4 && isIpAddress(ipv4) ? ipv4 : null,
+    cname,
+    ipv4: isPublicIpv4(ipv4) ? ipv4 : null,
   };
 }
 
-/** The exact DNS records a customer must create for a domain to serve their published app. */
+/** True for a hostname the public internet can resolve, so a customer CNAME can point at it. */
+export function isPublicHostname(hostname: string) {
+  if (!hostname || isLocalHostname(hostname) || isIpAddress(hostname)) return false;
+  const labels = hostname.split(".");
+  if (labels.length < 2) return false;
+  return !RESERVED_TLDS.has(labels.at(-1) ?? "");
+}
+
+/** True for an IPv4 address outside loopback, private, link-local, CGNAT, and reserved ranges. */
+export function isPublicIpv4(value: string) {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) return false;
+  const [a, b] = value.split(".").map(Number);
+  if (value.split(".").some((part) => Number(part) > 255)) return false;
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+  if (a === 169 && b === 254) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false;
+  return true;
+}
+
+/** Describes whether customer domains can be routed here, with a recovery step when they cannot. */
+export function domainSetup(env: DomainEnv = process.env): DomainSetup {
+  const targets = domainTargets(env);
+  if (targets.cname || targets.ipv4) {
+    return { ready: true, cname: targets.cname, ipv4: targets.ipv4, message: null };
+  }
+  const configured = hostnameFromValue(env.COGNIX_DOMAIN_CNAME_TARGET ?? "") || appHostnames(env)[0] || "";
+  const reason = configured
+    ? `Cognix is running on ${configured}, which the public internet cannot reach.`
+    : "Cognix does not know its public address yet.";
+  return {
+    ready: false,
+    cname: null,
+    ipv4: null,
+    message: `${reason} Deploy Cognix to a public host, then set COGNIX_DOMAIN_CNAME_TARGET (or APP_BASE_URL) to that hostname and restart the server.`,
+  };
+}
+
+/**
+ * The exact DNS records a customer must create for a domain to serve their published app.
+ * Without a public routing target only the ownership record is returned.
+ */
 export function dnsRecordsFor(
   domain: Pick<ProjectDomain, "hostname" | "verificationToken">,
   targets: DomainTargets,
@@ -221,17 +266,21 @@ export function dnsRecordsFor(
     },
   ];
 
-  if (isApexHostname(domain.hostname) && targets.ipv4) {
+  const apex = isApexHostname(domain.hostname);
+  if (targets.ipv4 && (apex || !targets.cname)) {
     records.push({
       type: "A",
       name: domain.hostname,
       value: targets.ipv4,
       ttl: DEFAULT_RECORD_TTL,
       purpose: "routing",
-      note: "Root domains cannot use a CNAME, so they need an A record.",
+      note: apex
+        ? "Root domains cannot use a CNAME, so they need an A record."
+        : "Points visitors at the Cognix server that serves your published app.",
     });
     return records;
   }
+  if (!targets.cname) return records;
 
   records.push({
     type: "CNAME",
@@ -239,7 +288,7 @@ export function dnsRecordsFor(
     value: targets.cname,
     ttl: DEFAULT_RECORD_TTL,
     purpose: "routing",
-    note: isApexHostname(domain.hostname)
+    note: apex
       ? "Use a provider that flattens CNAME records at the root, or ask your operator for an A record target."
       : "Points visitors at the Cognix edge that serves your published app.",
   });

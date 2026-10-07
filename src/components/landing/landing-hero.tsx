@@ -3,7 +3,6 @@
 import { ArrowRight, Code2, Cpu, Database, Flame, Layers, Sparkles, Terminal, Wand2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { isAuthConfigured } from "@/lib/auth0";
 
 const STARTER_PROMPTS = [
   {
@@ -32,7 +31,7 @@ const STARTER_PROMPTS = [
   },
 ];
 
-export function LandingHero() {
+export function LandingHero({ isAuthConfigured }: { isAuthConfigured: boolean }) {
   const router = useRouter();
   const [selectedPrompt, setSelectedPrompt] = useState(
     "Create a SaaS revenue dashboard with subscription analytics, MRR churn metrics, and Stripe billing tiers using Next.js and Neon Postgres."

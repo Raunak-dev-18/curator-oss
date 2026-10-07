@@ -684,9 +684,11 @@ button:disabled { cursor: not-allowed; }
 .workspace-resizer { position: relative; width: 1px; background: rgba(255,255,255,.12); transition: background .15s ease; }
 .workspace-resizer::after { content: ""; position: absolute; inset: 0 -4px; }
 .workspace-resizer:hover, .workspace-resizer[data-resize-handle-active] { background: #7262ff; }
-.chat-panel, .workbench-panel { display: flex; width: 100%; height: 100%; min-width: 0; flex-direction: column; overflow: hidden; background: #141414; }
+/* Panel content wrappers (see WORKSPACE_PANEL_STYLE) are fixed-height flex columns, so only
+   .chat-scroll and the workbench body scroll; the header and composer never move. */
+.chat-panel, .workbench-panel { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; background: #141414; }
 .chat-header { display: flex; height: 54px; flex: 0 0 54px; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--border); padding: 0 13px; }
-.chat-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 24px 14px 18px; }
+.chat-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 24px 14px 18px; }
 .chat-message { display: flex; margin: 0 auto 26px; max-width: 540px; flex-direction: column; }
 .chat-message.is-user { align-items: flex-end; }
 .chat-message time { margin-top: 7px; color: rgba(255,255,255,.25); font-size: 9px; font-variant-numeric: tabular-nums; }
@@ -896,6 +898,11 @@ button:disabled { cursor: not-allowed; }
 .domain-item-actions button:disabled { cursor: wait; opacity: .5; }
 .domain-item-actions .domain-remove-button { display: grid; width: 32px; height: 32px; place-items: center; padding: 0; border-color: rgba(244,63,94,.22); background: rgba(244,63,94,.05); color: #fb9aaa; }
 .domain-message { color: rgba(255,255,255,.5); font-size: 9px; line-height: 1.55; }
+.domain-setup-notice { display: flex; gap: 8px; border: 1px solid rgba(245,158,11,.26); border-radius: 8px; background: rgba(245,158,11,.06); padding: 9px 10px; color: rgba(255,255,255,.72); font-size: 10px; line-height: 1.55; }
+.domain-setup-notice > svg { flex: none; margin-top: 2px; color: #eab768; }
+.domain-setup-notice strong { display: block; color: #f3cd8e; font-size: 10px; font-weight: 600; }
+.domain-setup-notice code { font-family: var(--font-geist-mono), monospace; font-size: 9px; }
+.domain-record-pending { border: 1px dashed rgba(255,255,255,.12); border-radius: 7px; padding: 7px 9px; color: rgba(255,255,255,.42); font-size: 9px; line-height: 1.5; }
 .domain-records { display: grid; gap: 6px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 8px; }
 .domain-records > p { color: rgba(255,255,255,.42); font-size: 9px; line-height: 1.5; }
 .domain-record { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; }

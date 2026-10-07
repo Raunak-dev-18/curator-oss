@@ -1,7 +1,6 @@
 import { ArrowRight, Sparkles } from "lucide-react";
-import { isAuthConfigured } from "@/lib/auth0";
 
-export function LandingCTA() {
+export function LandingCTA({ isAuthConfigured }: { isAuthConfigured: boolean }) {
   return (
     <section className="landing-cta-section">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">

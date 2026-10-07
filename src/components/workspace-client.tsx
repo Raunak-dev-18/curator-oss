@@ -11,6 +11,7 @@ import {
   ExternalLink,
   FileCode2,
   FolderTree,
+  KeyRound,
   Globe2,
   History,
   Home,
@@ -40,6 +41,7 @@ import type { RefObject } from "react";
 import { toast } from "sonner";
 import { hasPersistedPrompt, stripInitialBuildParams } from "@/lib/initial-build";
 import { CustomDomainsPanel } from "@/components/custom-domains-panel";
+import { SecretsPanel } from "@/components/secrets-panel";
 import type {
   AgentEvent,
   AgentRunActivity,
@@ -91,6 +93,9 @@ type WorkspaceClientProps = {
 
 const suggestions = ["Add a dashboard", "Create a settings page", "Improve mobile layout"];
 const acceptedUploads = "image/*,.pdf,.md,.txt,.json";
+// react-resizable-panels wraps children in a div with `overflow: auto`. Left as-is, that wrapper scrolls the
+// whole chat panel (composer included) once messages overflow. Make it a fixed-height, non-scrolling column.
+const WORKSPACE_PANEL_STYLE = { display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" } as const;
 
 type MessageImage = { key: string; name: string; url: string };
 type ComposerUpload = {
@@ -226,8 +231,9 @@ function RunDetails({ message }: { message: Message }) {
         <small>{activity.length} {activity.length === 1 ? "step" : "steps"} · {formatDuration(duration)}</small>
       </summary>
       <div className="run-details-list">
-        {activity.map((item) => (
-          <div className={cn("run-details-row", item.status === "error" && "is-error")} key={item.id}>
+        {activity.map((item, index) => (
+          // Older saved runs can contain repeated provider tool IDs, so qualify the key with the position.
+          <div className={cn("run-details-row", item.status === "error" && "is-error")} key={`${item.id}-${index}`}>
             <span className="activity-icon is-done"><ActivityIcon name={item.name} running={false} /></span>
             <span title={item.label}>{item.label}</span>
             <small>{formatDuration(item.durationMs)}</small>
@@ -439,7 +445,7 @@ export function WorkspaceClient({
   const [project, setProject] = useState(initialProject);
   const [messages, setMessages] = useState(initialMessages);
   const [files, setFiles] = useState(initialFiles);
-  const [mode, setMode] = useState<"preview" | "code" | "details">("preview");
+  const [mode, setMode] = useState<"preview" | "code" | "details" | "secrets">("preview");
   const [selectedCodePath, setSelectedCodePath] = useState(initialFiles[0]?.path ?? "");
   const [detailsMessage, setDetailsMessage] = useState<Message | null>(null);
   const [detailsPath, setDetailsPath] = useState("");
@@ -1083,7 +1089,7 @@ export function WorkspaceClient({
       </aside>
 
       <Group orientation={isCompact ? "vertical" : "horizontal"} className="min-w-0 flex-1" id="cognix-workspace">
-        <Panel id="chat" defaultSize={isCompact ? "52%" : "34%"} minSize={isCompact ? "240px" : "340px"} maxSize={isCompact ? "72%" : "48%"}>
+        <Panel id="chat" style={WORKSPACE_PANEL_STYLE} defaultSize={isCompact ? "52%" : "34%"} minSize={isCompact ? "240px" : "340px"} maxSize={isCompact ? "72%" : "48%"}>
           <section className="chat-panel">
             <header className="chat-header">
               <div className="min-w-0">
@@ -1307,7 +1313,7 @@ export function WorkspaceClient({
 
         <Separator className="workspace-resizer" />
 
-        <Panel id="workbench" minSize={isCompact ? "180px" : "480px"}>
+        <Panel id="workbench" style={WORKSPACE_PANEL_STYLE} minSize={isCompact ? "180px" : "480px"}>
           <section className="workbench-panel">
             <header className="workbench-toolbar">
               {mode === "details" ? (
@@ -1316,6 +1322,7 @@ export function WorkspaceClient({
                 <div className="mode-tabs" role="tablist" aria-label="Workspace view">
                   <button type="button" role="tab" aria-label="Preview" aria-selected={mode === "preview"} className={cn("toolbar-expandable", mode === "preview" && "is-active")} onClick={() => setMode("preview")}><Monitor className="size-3.5" /><span className="toolbar-control-label">Preview</span></button>
                   <button type="button" role="tab" aria-label="Code" aria-selected={mode === "code"} className={cn("toolbar-expandable", mode === "code" && "is-active")} onClick={() => setMode("code")}><Code2 className="size-3.5" /><span className="toolbar-control-label">Code</span></button>
+                  <button type="button" role="tab" aria-label="Secrets" aria-selected={mode === "secrets"} className={cn("toolbar-expandable", mode === "secrets" && "is-active")} onClick={() => setMode("secrets")}><KeyRound className="size-3.5" /><span className="toolbar-control-label">Secrets</span></button>
                 </div>
               )}
 
@@ -1417,6 +1424,8 @@ export function WorkspaceClient({
                   onSelectPath={openFile}
                   onFilesChange={setFiles}
                 />
+              ) : mode === "secrets" ? (
+                <SecretsPanel projectId={project.id} />
               ) : detailsMessage ? (
                 <ChangeDetails
                   changedPaths={changedPathsFor(detailsMessage)}

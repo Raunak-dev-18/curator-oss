@@ -22,7 +22,7 @@ export async function GET(request: Request, context: Context) {
       if (sandbox) {
         const root = await getProjectRoot(sandbox);
         const normalized = requestedPath.replaceAll("\\", "/").replace(/^\/+/, "");
-        if (normalized.split("/").includes("..")) return Response.json({ error: "Invalid file path." }, { status: 400 });
+        if (normalized.split("/").includes("..") || normalized.split("/").some(p => p.startsWith(".env"))) return Response.json({ error: "Invalid file path." }, { status: 400 });
         const content = (await sandbox.fs.downloadFile(`${root}/${normalized}`)).toString("utf8");
         const file = await upsertProjectFile(project.id, normalized, content);
         return Response.json({ file });

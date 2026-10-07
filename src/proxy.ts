@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import {
   DOMAIN_HOST_HEADER,
+  DOMAIN_PATH_HEADER,
   hostnameFromHeader,
   isAppHostname,
   isCustomDomainRoutingEnabled,
@@ -22,12 +23,24 @@ export async function proxy(request: NextRequest) {
   // A request that arrives on an attached customer domain only ever serves that published app,
   // never the builder, its API, or an Auth0 session.
   if (isCustomDomainRoutingEnabled() && !isAppHostname(hostname)) {
+    const requestedPath = `${request.nextUrl.pathname}${request.nextUrl.search}`;
     const url = request.nextUrl.clone();
     url.pathname = `/domain/${encodeURIComponent(hostname)}`;
     url.search = "";
     const headers = new Headers(request.headers);
     headers.set(DOMAIN_HOST_HEADER, hostname);
+    // Deep links such as /pricing?plan=pro open the same page inside the published app.
+    headers.set(DOMAIN_PATH_HEADER, requestedPath);
     return NextResponse.rewrite(url, { request: { headers } });
+  }
+
+  // `/domain/*` is internal: it only renders through the rewrite above, never by direct request
+  // on the builder host, where a client could otherwise spoof the routing headers.
+  if (request.nextUrl.pathname.startsWith("/domain/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/_cognix-not-found";
+    url.search = "";
+    return NextResponse.rewrite(url);
   }
 
   if (!auth0) return NextResponse.next();

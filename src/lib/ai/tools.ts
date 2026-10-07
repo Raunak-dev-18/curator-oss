@@ -144,7 +144,7 @@ export const agentTools = [
     type: "function" as const,
     function: {
       name: "run_command",
-      description: "Run a terminal command inside the project. Use it to install packages, inspect logs, and run checks or servers.",
+      description: "Run a terminal command inside the project. Use it to install packages, inspect logs, and run checks or servers. DO NOT print or read .env* files.",
       parameters: {
         type: "object",
         properties: {
@@ -263,7 +263,8 @@ const relativePathSchema = z
   .string()
   .max(500)
   .transform((value) => value.replaceAll("\\", "/").replace(/^\/+/, ""))
-  .refine((value) => !value.includes("\0") && !value.split("/").includes(".."), "Path must stay inside the project.");
+  .refine((value) => !value.includes("\0") && !value.split("/").includes(".."), "Path must stay inside the project.")
+  .refine((value) => !value.split("/").some((part) => part.startsWith(".env")), "Environment files cannot be accessed directly.");
 
 function remotePath(root: string, relative = "") {
   const normalized = path.posix.normalize(relative || ".");
@@ -458,7 +459,7 @@ export async function executeAgentTool(
       .parse(rawInput);
     const target = remotePath(root, projectRelativePath(root, input.directory));
     const response = await sandbox.process.executeCommand(
-      `find . -maxdepth ${input.depth} -not -path './node_modules/*' -not -path './.next/*' -print | sort | head -500`,
+      `find . -maxdepth ${input.depth} -not -path './node_modules/*' -not -path './.next/*' -not -name '.env*' -print | sort | head -500`,
       target,
       undefined,
       30,
@@ -476,7 +477,7 @@ export async function executeAgentTool(
       .parse(rawInput);
     const directory = projectRelativePath(root, input.directory);
     const response = await sandbox.process.executeCommand(
-      `find . -type d \\( -name node_modules -o -name .next -o -name .git \\) -prune -o -type f -iname ${shellQuote(input.pattern)} -print | sort | head -n ${input.maxResults}`,
+      `find . -type d \\( -name node_modules -o -name .next -o -name .git \\) -prune -o -type f -not -name '.env*' -iname ${shellQuote(input.pattern)} -print | sort | head -n ${input.maxResults}`,
       remotePath(root, directory),
       undefined,
       30,
@@ -570,7 +571,7 @@ export async function executeAgentTool(
     const flags = ["-R", "-I", "-n", input.regex ? "-E" : "-F", input.caseSensitive ? "" : "-i"].filter(Boolean).join(" ");
     const include = input.fileGlob ? `--include=${shellQuote(input.fileGlob)}` : "";
     const response = await sandbox.process.executeCommand(
-      `grep ${flags} ${include} --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git -- ${shellQuote(input.query)} . | head -n ${input.maxResults}`,
+      `grep ${flags} ${include} --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.git --exclude='.env*' -- ${shellQuote(input.query)} . | head -n ${input.maxResults}`,
       remotePath(root, directory),
       undefined,
       45,

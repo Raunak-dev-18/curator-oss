@@ -130,6 +130,9 @@ export async function runAgent(input: {
   let nativeFilePartsEnabled = hasNativeFileParts(stagedAttachments);
 
   const usedTools: string[] = [];
+  // Some providers number tool call IDs per turn (e.g. `read_file_10`), so they repeat across turns.
+  // The provider ID is still used for `tool_call_id`; this sequence keeps UI activity IDs unique.
+  let activitySequence = 0;
   const changedPaths = new Set<string>();
   const fileChanges = new Map<string, FileChangeSnapshot>();
   let finalContent = "";
@@ -236,8 +239,9 @@ export async function runAgent(input: {
     for (const call of calls) {
       const toolInput = parseToolInput(call.function.arguments);
       const activityStartedAt = Date.now();
+      const activityId = `${call.id}#${++activitySequence}`;
       usedTools.push(call.function.name);
-      await emit({ type: "tool_start", id: call.id, name: call.function.name, input: toolInput });
+      await emit({ type: "tool_start", id: activityId, name: call.function.name, input: toolInput });
 
       let toolOutput: string;
       try {
@@ -274,12 +278,12 @@ export async function runAgent(input: {
               }
             : change);
         });
-        await emit({ type: "tool_result", id: call.id, name: call.function.name, summary: result.summary });
+        await emit({ type: "tool_result", id: activityId, name: call.function.name, summary: result.summary });
         if (result.changedPaths?.length) await emit({ type: "files_changed", paths: result.changedPaths });
         if (result.previewUrl) await emit({ type: "preview", url: result.previewUrl, sandboxId: sandbox.id });
         if (result.previewUrl) previewReady = true;
         runActivity.push({
-          id: call.id,
+          id: activityId,
           name: call.function.name,
           label: result.summary,
           status: "done",
@@ -290,12 +294,12 @@ export async function runAgent(input: {
         toolOutput = JSON.stringify({ error: error instanceof Error ? error.message : "Tool failed" });
         await emit({
           type: "tool_result",
-          id: call.id,
+          id: activityId,
           name: call.function.name,
           summary: `Needs attention: ${failure}`,
         });
         runActivity.push({
-          id: call.id,
+          id: activityId,
           name: call.function.name,
           label: `Needs attention: ${failure}`.slice(0, 500),
           status: "error",

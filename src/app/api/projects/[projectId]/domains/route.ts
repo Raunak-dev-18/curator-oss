@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { requireViewer } from "@/lib/auth0";
 import { provisionDomainDns, verifyProjectDomain } from "@/lib/dns";
-import { DomainRequestError, createVerificationToken, domainView, normalizeCustomHostname } from "@/lib/domains";
+import { DomainRequestError, createVerificationToken, domainSetup, domainView, normalizeCustomHostname } from "@/lib/domains";
 import { errorResponse, notFound } from "@/lib/http";
 import {
   createProjectDomain,
@@ -26,7 +26,7 @@ export async function GET(_request: Request, context: Context) {
     const project = await getProject(projectId, viewer.id);
     if (!project) return notFound();
     const domains = await listProjectDomains(project.id);
-    return Response.json({ domains: domains.map(domainView) });
+    return Response.json({ domains: domains.map(domainView), setup: domainSetup() });
   } catch (error) {
     return errorResponse(error);
   }
@@ -74,7 +74,7 @@ export async function POST(request: Request, context: Context) {
       domain = await verifyProjectDomain(domain);
     }
 
-    return Response.json({ domain: domainView(domain), managed }, { status: 201 });
+    return Response.json({ domain: domainView(domain), managed, setup: domainSetup() }, { status: 201 });
   } catch (error) {
     const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
     if (code === "23505") {

@@ -4,12 +4,15 @@ import {
   appHostnames,
   createVerificationToken,
   dnsRecordsFor,
+  domainSetup,
   domainTargets,
   evaluateDomainVerification,
   hostnameFromHeader,
   isApexHostname,
   isAppHostname,
   isCustomDomainRoutingEnabled,
+  isPublicHostname,
+  isPublicIpv4,
   matchesRoutingRecord,
   matchesVerificationTxt,
   normalizeCustomHostname,
@@ -117,6 +120,39 @@ describe("DNS record plan", () => {
     const records = dnsRecordsFor({ hostname: "example.com", verificationToken: "abc" }, fallback);
     expect(records[1]).toMatchObject({ type: "CNAME", value: "cognix.example.com" });
     expect(records[1].note).toMatch(/flattens/);
+  });
+
+  it("never offers localhost or private targets and explains how to recover", () => {
+    const local = { APP_BASE_URL: "http://localhost:3000", COGNIX_DOMAIN_IPV4: "192.168.1.20" } as DomainEnv;
+    expect(domainTargets(local)).toEqual({ cname: null, ipv4: null });
+    const records = dnsRecordsFor({ hostname: "ig.raunak.co", verificationToken: "abc" }, domainTargets(local));
+    expect(records.map((record) => record.type)).toEqual(["TXT"]);
+    const setup = domainSetup(local);
+    expect(setup.ready).toBe(false);
+    expect(setup.message).toContain("localhost");
+    expect(setup.message).toContain("COGNIX_DOMAIN_CNAME_TARGET");
+  });
+
+  it("skips an unroutable configured target in favor of a public app host", () => {
+    const mixed = { APP_BASE_URL: "https://cognix.example.com", COGNIX_DOMAIN_CNAME_TARGET: "localhost" } as DomainEnv;
+    expect(domainTargets(mixed).cname).toBe("cognix.example.com");
+    expect(domainSetup(mixed).ready).toBe(true);
+  });
+
+  it("routes subdomains with an A record when only an address is configured", () => {
+    const ipOnly = domainTargets({ APP_BASE_URL: "http://localhost:3000", COGNIX_DOMAIN_IPV4: "203.0.113.10" } as DomainEnv);
+    const records = dnsRecordsFor({ hostname: "ig.raunak.co", verificationToken: "abc" }, ipOnly);
+    expect(records[1]).toMatchObject({ type: "A", value: "203.0.113.10" });
+  });
+
+  it("classifies public and private IPv4 addresses", () => {
+    for (const value of ["203.0.113.10", "8.8.8.8"]) expect(isPublicIpv4(value), value).toBe(true);
+    for (const value of ["127.0.0.1", "10.0.0.4", "172.20.1.1", "192.168.0.1", "169.254.1.1", "100.64.0.1", "0.0.0.0", "256.1.1.1", ""]) {
+      expect(isPublicIpv4(value), value).toBe(false);
+    }
+    expect(isPublicHostname("cognix.example.com")).toBe(true);
+    expect(isPublicHostname("localhost")).toBe(false);
+    expect(isPublicHostname("app.internal")).toBe(false);
   });
 
   it("creates unique verification tokens", () => {

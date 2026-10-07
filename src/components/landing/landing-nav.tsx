@@ -1,7 +1,6 @@
 import { ArrowRight, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { BrandMark } from "@/components/brand-mark";
-import { isAuthConfigured } from "@/lib/auth0";
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -11,7 +10,7 @@ function GithubIcon({ className }: { className?: string }) {
   );
 }
 
-export function LandingNav() {
+export function LandingNav({ isAuthConfigured }: { isAuthConfigured: boolean }) {
   return (
     <header className="landing-nav-wrap">
       <nav className="landing-nav" aria-label="Main navigation">

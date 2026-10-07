@@ -20,7 +20,15 @@ async function publishedProject() {
 
 describe("serving a published project on a custom hostname", () => {
   beforeEach(() => {
-    globalThis.__cognixMemoryStore = { projects: [], messages: [], files: [], attachments: [], domains: [] };
+    globalThis.__cognixMemoryStore = {
+      projects: [],
+      messages: [],
+      files: [],
+      attachments: [],
+      domains: [],
+      secrets: [],
+      clouds: [],
+    };
   });
 
   it("returns nothing for a hostname that was never attached", async () => {

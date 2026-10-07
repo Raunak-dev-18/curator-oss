@@ -3,7 +3,6 @@
 import { ArrowRight, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { isAuthConfigured } from "@/lib/auth0";
 
 type ProjectCategory = "all" | "saas" | "ai" | "commerce" | "tools";
 
@@ -72,7 +71,7 @@ const CATEGORIES: { id: ProjectCategory; label: string }[] = [
   { id: "tools", label: "Developer Tools" },
 ];
 
-export function LandingShowcase() {
+export function LandingShowcase({ isAuthConfigured }: { isAuthConfigured: boolean }) {
   const router = useRouter();
   const [activeCategory, setActiveCategory] = useState<ProjectCategory>("all");
 

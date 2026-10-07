@@ -95,6 +95,15 @@ export type ProjectDomainView = ProjectDomain & {
   url: string;
 };
 
+/** Whether this deployment has a public address that customer DNS records can point at. */
+export type DomainSetup = {
+  ready: boolean;
+  cname: string | null;
+  ipv4: string | null;
+  /** Operator-facing explanation and recovery step when `ready` is false. */
+  message: string | null;
+};
+
 export type Viewer = {
   id: string;
   email: string;
@@ -156,3 +165,26 @@ export type AgentEvent =
       runDurationMs?: number;
     }
   | { type: "error"; message: string };
+
+export type ProjectSecret = {
+  id: string;
+  projectId: string;
+  name: string;
+  managedBy: "user" | "cloud";
+  updatedAt: string;
+};
+
+export type ProjectCloudStatus = "disabled" | "provisioning" | "ready" | "error";
+
+export type ProjectCloud = {
+  projectId: string;
+  status: ProjectCloudStatus;
+  neonProjectId: string | null;
+  neonRegion: string | null;
+  storageEnabled: boolean;
+  appTokenHash: string | null;
+  authEnabled: boolean;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};

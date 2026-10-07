@@ -3,7 +3,7 @@ import Link from "next/link";
 import { DashboardComposer } from "@/components/dashboard-composer";
 import { ProjectCard } from "@/components/project-card";
 import { Sidebar } from "@/components/sidebar";
-import { getViewer } from "@/lib/auth0";
+import { getViewer, isAuthConfigured } from "@/lib/auth0";
 import { isDatabaseConfigured } from "@/lib/db";
 import { ensureUser, listProjects } from "@/lib/store";
 
@@ -21,15 +21,15 @@ import { LandingFooter } from "@/components/landing/landing-footer";
 function SignedOutHome() {
   return (
     <main className="landing-shell">
-      <LandingNav />
-      <LandingHero />
+      <LandingNav isAuthConfigured={isAuthConfigured} />
+      <LandingHero isAuthConfigured={isAuthConfigured} />
       <LandingWorkspaceDemo />
       <LandingHowItWorks />
       <LandingFeatures />
-      <LandingShowcase />
+      <LandingShowcase isAuthConfigured={isAuthConfigured} />
       <LandingComparison />
       <LandingFAQ />
-      <LandingCTA />
+      <LandingCTA isAuthConfigured={isAuthConfigured} />
       <LandingFooter />
     </main>
   );

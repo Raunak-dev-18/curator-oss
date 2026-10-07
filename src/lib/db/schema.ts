@@ -122,3 +122,38 @@ export const projectDomains = pgTable(
     index("project_domains_project_idx").on(table.projectId, table.createdAt),
   ],
 );
+
+export const projectSecrets = pgTable(
+  "project_secrets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    iv: text("iv").notNull(),
+    authTag: text("auth_tag").notNull(),
+    managedBy: text("managed_by").default("user").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [unique("project_secrets_project_name_unique").on(table.projectId, table.name)],
+);
+
+export const projectCloud = pgTable(
+  "project_cloud",
+  {
+    projectId: uuid("project_id")
+      .primaryKey()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    status: text("status").default("disabled").notNull(),
+    neonProjectId: text("neon_project_id"),
+    neonRegion: text("neon_region"),
+    storageEnabled: boolean("storage_enabled").default(false).notNull(),
+    appTokenHash: text("app_token_hash"),
+    authEnabled: boolean("auth_enabled").default(false).notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  }
+);

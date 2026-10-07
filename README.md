@@ -106,6 +106,15 @@ CLOUDFLARE_API_TOKEN=
 
 Attach a domain from the publish dialog. Cognix shows the two records to create: a `TXT` record at
 `_cognix-challenge.<host>` that proves ownership, and a `CNAME` (or `A` for a root domain) that routes traffic.
+
+The routing target must be reachable from the public internet. Cognix never offers `localhost`, private TLDs, or
+private/loopback IPs as a target: when running locally it shows only the `TXT` record plus a notice explaining what to
+configure. To test end to end, deploy Cognix (or expose it through a tunnel) and set `COGNIX_DOMAIN_CNAME_TARGET` to
+that public hostname. Your hosting platform must also accept the customer hostname and issue TLS for it (for example,
+add the domain to the project on Vercel, or use a reverse proxy with on-demand certificates such as Caddy).
+
+Deep links are forwarded: `https://app.customer.com/pricing?plan=pro` and `/publish/<slug>/pricing?plan=pro` open that
+same page inside the published app.
 Choosing **Check DNS** resolves both over DNS-over-HTTPS and marks the domain live when they match. Publishing a
 project re-checks every attached domain, so correct DNS activates without a second click. With
 `CLOUDFLARE_API_TOKEN` set and the zone in that account, Cognix creates and removes those records itself.

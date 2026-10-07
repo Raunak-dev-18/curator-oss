@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { publishedAppUrl, requestOrigin } from "./publish-url";
+import { publishedAppUrl, publishedFrameUrl, requestOrigin, safeAppPath } from "./publish-url";
 
 describe("publishing URL construction", () => {
   it("uses the current localhost origin during local development", () => {
@@ -26,5 +26,29 @@ describe("publishing URL construction", () => {
       },
     });
     expect(requestOrigin(request)).toBe("https://apps.example.com");
+  });
+});
+
+describe("published app deep links", () => {
+  const runtime = "https://3001-abc123.daytonaproxy01.net/";
+
+  it("opens the requested path and query inside the published app", () => {
+    expect(publishedFrameUrl(runtime, "/stories/alex?tab=reels")).toBe(
+      "https://3001-abc123.daytonaproxy01.net/stories/alex?tab=reels",
+    );
+    expect(publishedFrameUrl(runtime, "/")).toBe(runtime);
+  });
+
+  it("keeps runtime query parameters such as signed tokens", () => {
+    expect(publishedFrameUrl("https://runtime.example.net/?token=signed", "/pricing?token=spoofed&plan=pro")).toBe(
+      "https://runtime.example.net/pricing?token=signed&plan=pro",
+    );
+  });
+
+  it("never lets a visitor path change the runtime origin", () => {
+    for (const value of ["//evil.example.com/x", "https://evil.example.com", "/\\evil.example.com", "pricing", null]) {
+      expect(safeAppPath(value), String(value)).toBe("/");
+      expect(new URL(publishedFrameUrl(runtime, value)).origin).toBe("https://3001-abc123.daytonaproxy01.net");
+    }
   });
 });

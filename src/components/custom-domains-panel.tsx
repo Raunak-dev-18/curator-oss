@@ -3,7 +3,7 @@
 import { CircleAlert, CircleCheck, Copy, Globe2, LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import type { DomainDnsRecord, ProjectDomainView } from "@/lib/types";
+import type { DomainDnsRecord, DomainSetup, ProjectDomainView } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type CustomDomainsPanelProps = {
@@ -63,12 +63,17 @@ export function CustomDomainsPanel({ projectId, published, disabled, refreshKey 
   const [hostname, setHostname] = useState("");
   const [adding, setAdding] = useState(false);
   const [busyDomainId, setBusyDomainId] = useState<string | null>(null);
+  const [setup, setSetup] = useState<DomainSetup | null>(null);
+  const routingUnavailable = setup !== null && !setup.ready;
 
   const fetchDomains = useCallback(async () => {
     const response = await fetch(`/api/projects/${projectId}/domains`, { cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? "Could not load custom domains.");
-    return payload.domains as ProjectDomainView[];
+    return {
+      domains: payload.domains as ProjectDomainView[],
+      setup: (payload.setup ?? null) as DomainSetup | null,
+    };
   }, [projectId]);
 
   useEffect(() => {
@@ -76,7 +81,8 @@ export function CustomDomainsPanel({ projectId, published, disabled, refreshKey 
     fetchDomains()
       .then((next) => {
         if (!active) return;
-        setDomains(next);
+        setDomains(next.domains);
+        setSetup(next.setup);
         setLoadState("ready");
       })
       .catch((error: unknown) => {
@@ -92,7 +98,9 @@ export function CustomDomainsPanel({ projectId, published, disabled, refreshKey 
   async function reloadDomains() {
     setLoadState("loading");
     try {
-      setDomains(await fetchDomains());
+      const next = await fetchDomains();
+      setDomains(next.domains);
+      setSetup(next.setup);
       setLoadState("ready");
     } catch (error) {
       setLoadState("error");
@@ -113,12 +121,15 @@ export function CustomDomainsPanel({ projectId, published, disabled, refreshKey 
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Could not attach that domain.");
       const domain = payload.domain as ProjectDomainView;
+      if (payload.setup) setSetup(payload.setup as DomainSetup);
       setDomains((current) => [...current.filter((item) => item.id !== domain.id), domain]);
       setHostname("");
       toast.success(
         payload.managed === true
           ? `${domain.hostname} attached. Cognix created its DNS records.`
-          : `${domain.hostname} attached. Add the DNS records below, then check DNS.`,
+          : payload.setup?.ready === false
+            ? `${domain.hostname} attached. Add the TXT record now; the routing record appears once Cognix is public.`
+            : `${domain.hostname} attached. Add the DNS records below, then check DNS.`,
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not attach that domain.");
@@ -184,6 +195,16 @@ export function CustomDomainsPanel({ projectId, published, disabled, refreshKey 
           <RefreshCw className={cn("size-3.5", loadState === "loading" && "animate-spin")} aria-hidden="true" />
         </button>
       </header>
+
+      {routingUnavailable ? (
+        <div className="domain-setup-notice" role="status">
+          <CircleAlert className="size-3.5" aria-hidden="true" />
+          <div>
+            <strong>Custom domains need a public Cognix address</strong>
+            <p>{setup?.message}</p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="domain-add-row">
         <label className="sr-only" htmlFor="custom-domain-input">
@@ -258,7 +279,12 @@ export function CustomDomainsPanel({ projectId, published, disabled, refreshKey 
                   {statusLabel(domain)}
                 </span>
                 <div className="domain-item-actions">
-                  <button type="button" onClick={() => void verifyDomain(domain)} disabled={busy}>
+                  <button
+                    type="button"
+                    onClick={() => void verifyDomain(domain)}
+                    disabled={busy || routingUnavailable}
+                    title={routingUnavailable ? "Available once Cognix has a public address" : `Check DNS for ${domain.hostname}`}
+                  >
                     {busy ? (
                       <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
                     ) : (
@@ -296,6 +322,11 @@ export function CustomDomainsPanel({ projectId, published, disabled, refreshKey 
                   {domain.records.map((record) => (
                     <RecordRow key={`${record.type}-${record.name}`} record={record} />
                   ))}
+                  {domain.records.some((record) => record.purpose === "routing") ? null : (
+                    <p className="domain-record-pending">
+                      The CNAME or A record that routes visitors appears here once Cognix runs on a public address.
+                    </p>
+                  )}
                 </div>
               )}
             </li>
